@@ -166,6 +166,25 @@ class BedrockLargeLanguageModel(LargeLanguageModel):
         # Check if this is an inference profile model
         inference_profile_id = credentials.get("inference_profile_id")
         if inference_profile_id:
+            # Handle response_format for inference profiles (same logic as _code_block_mode_wrapper)
+            if model_parameters.get("response_format"):
+                stop = stop or []
+                if "```\n" not in stop:
+                    stop.append("```\n")
+                if "\n```" not in stop:
+                    stop.append("\n```")
+                response_format = model_parameters.pop("response_format")
+                format_prompt = SystemPromptMessage(
+                    content=ANTHROPIC_BLOCK_MODE_PROMPT.replace("{{instructions}}", prompt_messages[0].content).replace(
+                        "{{block}}", response_format
+                    )
+                )
+                if len(prompt_messages) > 0 and isinstance(prompt_messages[0], SystemPromptMessage):
+                    prompt_messages[0] = format_prompt
+                else:
+                    prompt_messages.insert(0, format_prompt)
+                prompt_messages.append(AssistantPromptMessage(content=f"\n```{response_format}"))
+            
             # For inference profiles, we must use the converse API
             try:
                 model_info = self._get_model_info(model, credentials, model_parameters)
@@ -895,7 +914,7 @@ class BedrockLargeLanguageModel(LargeLanguageModel):
                                 # Load parameter rules, excluding model_name since it's determined by inference profile
                                 matched_parameter_rules = [rule for rule in (model_schema.parameter_rules or [])
                                                            if rule.name in ['max_tokens', 'temperature', 'top_p', 'top_k',
-                                                                            'reasoning_type', 'reasoning_budget']]
+                                                                            'reasoning_type', 'reasoning_budget', 'response_format']]
                                 if model_schema.model_properties:
                                     matched_model_properties.update(model_schema.model_properties)
                                     # Override context_size with user-specified value
@@ -928,7 +947,7 @@ class BedrockLargeLanguageModel(LargeLanguageModel):
                 default_pricing = model_schemas[0].pricing if model_schemas else None
                 fallback_parameter_rules = [rule for rule in (model_schemas[0].parameter_rules or [])
                                             if rule.name in ['max_tokens', 'temperature', 'top_p', 'top_k',
-                                                            'reasoning_type', 'reasoning_budget']] if model_schemas else []
+                                                            'reasoning_type', 'reasoning_budget', 'response_format']] if model_schemas else []
                 fallback_features = model_schemas[0].features if model_schemas else []
                 fallback_model_properties = {
                     "mode": LLMMode.CHAT,
